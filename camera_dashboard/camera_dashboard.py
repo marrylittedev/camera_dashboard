@@ -27,7 +27,7 @@ last_pred_time = 0
 
 # Tkinter GUI
 root = tk.Tk()
-root.title("Cacao Detection")
+root.title("Cacao Bean Segregator")
 root.geometry("900x600")
 root.configure(bg="#2E2E2E")
 
@@ -51,7 +51,7 @@ unknown_var = tk.StringVar(value="Unknown: 0")
 detected_type_var = tk.StringVar(value="Detected: Waiting")
 
 # Dashboard content
-tk.Label(dashboard, text="🧠 Detection Summary", font=("Arial", 16, "bold"),
+tk.Label(dashboard, text=" Detection Summary", font=("Arial", 16, "bold"),
          fg="white", bg="#2E2E2E").pack(pady=10)
 tk.Label(dashboard, textvariable=criollo_var, font=("Arial", 12),
          fg="white", bg="#2E2E2E").pack(pady=5)
