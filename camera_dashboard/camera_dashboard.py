@@ -8,23 +8,17 @@ import time
 
 # Roboflow setup
 rf = Roboflow(api_key="f4UBb9Y1BqAaVoiasTC1")
-project = rf.workspace("cacaotrain").project("trained-q5iwo")
-model = project.version(2).model
-
-# HSV color thresholds (you can fine-tune these)
-criollo_lower = np.array([0, 10, 180])
-criollo_upper = np.array([15, 80, 255])
-forastero_lower = np.array([130, 50, 50])
-forastero_upper = np.array([170, 255, 255])
-trinitario_lower = np.array([5, 50, 100])  # Adjusted Trinitario lower bound
-trinitario_upper = np.array([35, 255, 255])  # Adjusted Trinitario upper bound
-min_match_threshold = 10.0
+project = rf.workspace("cacaotrain").project("cacao_final")
+version = project.version(1)
+model = version.model  # Load model from Roboflow project
 
 # Detection counters and state
 counts = {"Criollo": 0, "Forastero": 0, "Trinitario": 0, "Unknown": 0}
 last_pred_time = 0
 last_predicted_frame = None
 camera_ready = False
+frame_skip = 3  # Process every 3rd frame (adjust as needed)
+prediction_interval = 0.5  # Seconds between predictions
 
 # Tkinter GUI setup
 root = tk.Tk()
@@ -72,10 +66,11 @@ def predict_and_update(frame):
     global last_pred_time, last_predicted_frame
     last_pred_time = time.time()
 
-    tmp_path = "frame.jpg"
-    cv2.imwrite(tmp_path, frame)
+    # Resize frame to improve processing speed without sacrificing quality
+    resized_frame = cv2.resize(frame, (640, 480))
+
     try:
-        predictions = model.predict(tmp_path, confidence=20, overlap=30).json()  # Lower confidence threshold for faster detection
+        predictions = model.predict(resized_frame, confidence=20, overlap=30).json()  # Lower confidence threshold for faster detection
     except Exception as e:
         print(f"Prediction error: {e}")
         return
@@ -84,45 +79,22 @@ def predict_and_update(frame):
     for k in counts:
         counts[k] = 0
 
-    # Process only the first valid prediction
-    first_detection_done = False  # Flag to track if we've processed the first detection
-
+    # Process predictions
     for pred in predictions.get("predictions", []):
-        if first_detection_done:  # If the first detection is already done, stop further processing
-            break
-
         x, y, w, h = map(int, [pred['x'], pred['y'], pred['width'], pred['height']])
         x1, y1 = max(x - w // 2, 0), max(y - h // 2, 0)
         x2, y2 = min(x + w // 2, frame.shape[1]), min(y + h // 2, frame.shape[0])
         crop = frame[y1:y2, x1:x2]
 
-        hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
-        masks = {
-            "Criollo": cv2.inRange(hsv, criollo_lower, criollo_upper),
-            "Forastero": cv2.inRange(hsv, forastero_lower, forastero_upper),
-            "Trinitario": cv2.inRange(hsv, trinitario_lower, trinitario_upper),
-        }
+        # Directly use the predicted class label from YOLOv5
+        label = pred['class']  # This is the label provided by YOLOv5, e.g., Criollo, Forastero, etc.
+        counts[label] += 1  # Increment the count for the detected type
 
-        # New logic: pick the most dominant match
-        best_match = "Unknown"
-        best_ratio = 0
-
-        for name, mask in masks.items():
-            ratio = (cv2.countNonZero(mask) / (crop.size / 3)) * 100
-            if ratio > best_ratio and ratio > min_match_threshold:
-                best_ratio = ratio
-                best_match = name
-
-        counts[best_match] += 1
-        color_label = best_match
-
-        label_text = f"{pred['class']} | {color_label}"
+        label_text = f"{label}"
         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
         (tw, th), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
         cv2.rectangle(frame, (x1, y1 - th - 4), (x1 + tw, y1), (0, 255, 0), -1)
         cv2.putText(frame, label_text, (x1, y1 - 2), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
-
-        first_detection_done = True  # Mark that we've processed one detection
 
     criollo_var.set(f"Criollo: {counts['Criollo']}")
     forastero_var.set(f"Forastero: {counts['Forastero']}")
@@ -141,8 +113,8 @@ def update_frame():
             camera_ready = True
             print("Camera ready.")
 
-        # Skip frames to reduce load: process every 5th frame
-        if time.time() - last_pred_time >= 3.0:  # Process every 3 seconds
+        # Skip frames to reduce load: process every 'frame_skip' frame
+        if time.time() - last_pred_time >= prediction_interval:  # Adjust interval to process predictions at the specified interval
             threading.Thread(target=predict_and_update, args=(frame.copy(),), daemon=True).start()
 
         display = last_predicted_frame if last_predicted_frame is not None else frame
